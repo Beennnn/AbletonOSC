@@ -18,7 +18,13 @@ class TrackHandler(AbletonOSCHandler):
                     track_indices = [int(params[0])]
 
                 for track_index in track_indices:
-                    track = self.song.tracks[track_index]
+                    # Index -1 addresses the master track. Live's `song.tracks` does not
+                    # contain it, and a plain negative index would silently resolve to the
+                    # LAST regular track -- so the case has to be explicit. Without this,
+                    # the master track's volume, panning and output routing are simply not
+                    # reachable over OSC.
+                    track = (self.song.master_track if track_index == -1
+                             else self.song.tracks[track_index])
                     if include_track_id:
                         rv = func(track, *args, tuple([track_index] + params[1:]))
                     else:
