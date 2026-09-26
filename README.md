@@ -225,6 +225,19 @@ Represents the view (user interface) of live
 > **Master track.** Pass `-1` as the track index to address the master track
 > (for example `/live/track/set/volume -1 0.85`). It is not part of `song.tracks`,
 > so it has no ordinary index of its own.
+>
+> **Cue output.** Pass `-2` to reach Live's Cue (headphone) level, as
+> `/live/track/set/volume -2 0.7`. It is neither a track nor a song property: it
+> lives on the main track's mixer device, as `cue_volume`. Volume is all it
+> exposes -- the Live API has no cue output routing, which is chosen in the audio
+> preferences rather than through the object model.
+>
+> **Output routing by index.** `/live/track/set/output_routing_channel` accepts a
+> position in `available_output_routing_channels` as well as a display name, so
+> `... 3 5` and `... 3 "MyRack | Piano | 1-Drift"` do the same thing. A MIDI
+> control can only ever send a number -- a CC carries 0-127, never a string -- so
+> the index is what makes this address reachable from a hardware controller
+> through a MIDI-to-OSC bridge. The name stays the readable form for a config file.
 
 Represents an audio, MIDI, return or master track. Can be used to set track audio parameters (volume, panning, send, mute, solo), listen for the playing clip slot, query devices, etc. Can also be used to query clips in arrangement view.
 
