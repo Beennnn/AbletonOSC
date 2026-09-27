@@ -21,14 +21,11 @@ class Manager(ControlSurface):
         self.midi_mappings = {}
 
         #--------------------------------------------------------------------------------
-        # Which document we last saw. Loading another Live Set replaces the Song object
-        # without restarting this control surface, so this is what tells the two apart.
-        # See _check_document_changed().
+        # How many times this control surface has started. Live restarts it when another
+        # Set is loaded -- measured, see _announce_startup() -- so a client can use this
+        # to know that the document it was describing is gone.
         #--------------------------------------------------------------------------------
-        self._last_song = None
-        self._last_shape = None
-        self._seen_a_document = False
-        self.document_generation = 0
+        self.startup_count = 1
 
         try:
             self.osc_server = abletonosc.OSCServer()
@@ -39,6 +36,7 @@ class Manager(ControlSurface):
 
             self.show_message("AbletonOSC: Listening for OSC on port %d" % abletonosc.OSC_LISTEN_PORT)
             logger.info("Started AbletonOSC on address %s" % str(self.osc_server._local_addr))
+            self._announce_startup()
         except OSError as msg:
             self.show_message("AbletonOSC: Couldn't bind to port %d (%s)" % (abletonosc.OSC_LISTEN_PORT, msg))
             logger.info("Couldn't bind to port %d (%s)" % (abletonosc.OSC_LISTEN_PORT, msg))
@@ -125,81 +123,37 @@ class Manager(ControlSurface):
         processes such as the OSC server to perform operations.
         """
         logger.debug("Tick...")
-        self._check_document_changed()
         self.osc_server.process()
         self.schedule_message(1, self.tick)
 
-    def _check_document_changed(self):
+    def _announce_startup(self):
         """
-        Detect that a different Live Set has been loaded, and tell clients about it.
+        Tell clients that this control surface has just started.
 
-        Why this is needed: a control surface is bound to its MIDI ports, not to the
-        document. Loading another Set therefore does NOT restart AbletonOSC -- it simply
-        swaps the object returned by self.song(). Nothing is sent, nothing goes quiet,
-        and a client has no way of knowing that everything it had learned about the
-        document -- track indices, scene count, routings -- now describes a Set that is
-        no longer open.
+        WHY THIS IS THE WHOLE ANSWER. Loading another Live Set RESTARTS the control
+        surface. Measured on Live 12 on 2026-09-27, from this script's own log:
 
-        Clients have been working around this by watching a value that usually changes
-        with the document, most often the list of track names. That is unreliable in
-        both directions: renaming one track looks like a new document, and two Sets with
-        the same track names look like the same one.
+            14:01:59  Disconnecting...          <- the Set was opened here
+            14:02:10  Started AbletonOSC ...
 
-        Identity is the honest signal. `song` is a different Python object for a
-        different document, so `is not` answers the question exactly, with no heuristic
-        and no false positive.
+        So a client does not need AbletonOSC to compare documents, or fingerprint them,
+        or watch a value that happens to change with them. It needs to be told that
+        everything it had learned -- track indices, scene count, routings -- belongs to
+        a document that is no longer open. A startup announcement says exactly that, is
+        true by construction, and has no false positive to reason about.
 
-        Two things are published, because clients differ in how they listen:
-          * /live/song/loaded          broadcast, for clients that subscribe;
-          * /live/song/get/document_generation
-                                       a counter, for clients that poll -- ours polls
-                                       every 30 s and would miss a broadcast sent while
-                                       it was not listening.
+        Clients have been working around the absence of this by watching a value that
+        usually changes with the document, most often track names. That fires on a
+        rename, which is not a document change, and stays silent between two Sets whose
+        track names match.
 
-        The first call, at startup, is not a change: it only records the document we
-        began with, so a client does not see a phantom load when AbletonOSC starts.
+        The message carries the startup count, so a client that reconnects can tell a
+        first sight from a restart it slept through.
         """
         try:
-            song = self.song()
-            #--------------------------------------------------------------------------
-            # A fingerprint of the document's SHAPE, not of its labels. Renaming a track
-            # leaves every one of these untouched, which is the whole point: the
-            # workaround this replaces watched track NAMES and fired twice on a
-            # rename-and-rename-back.
-            #--------------------------------------------------------------------------
-            shape = (len(song.tracks), len(song.return_tracks), len(song.scenes),
-                     song.signature_numerator, song.signature_denominator)
-        except Exception:
-            #--------------------------------------------------------------------------
-            # song() can raise while Live is between documents. Not worth logging every
-            # 100 ms -- the next tick will find it settled.
-            #--------------------------------------------------------------------------
-            return
-
-        #------------------------------------------------------------------------------
-        # Object identity is checked first because it can only ever be right when it
-        # fires: a different object cannot be the same document. On Live 12 it never
-        # fires -- measured 2026-09-27, loading another Set left song() returning the
-        # same instance -- so the fingerprint is what actually does the work. It is kept
-        # because it costs one comparison and would catch a version that does rebuild
-        # the object, where the fingerprint could miss two Sets of the same shape.
-        #------------------------------------------------------------------------------
-        changed = (self._last_song is not None and song is not self._last_song) or \
-                  (self._last_shape is not None and shape != self._last_shape)
-        self._last_song, self._last_shape = song, shape
-
-        if not self._seen_a_document:
-            #--------------------------------------------------------------------------
-            # Startup is not a change: the first pass only records what we began with,
-            # so a client does not see a phantom load when AbletonOSC starts.
-            #--------------------------------------------------------------------------
-            self._seen_a_document = True
-            return
-        if not changed:
-            return
-        self.document_generation += 1
-        logger.info("Document changed (generation %d, shape %s)" % (self.document_generation, shape))
-        self.osc_server.send("/live/song/loaded", (self.document_generation,))
+            self.osc_server.send("/live/startup", (self.startup_count,))
+        except Exception as e:
+            logger.warning("Could not announce startup: %s" % e)
 
     def reload_imports(self):
         try:
