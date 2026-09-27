@@ -98,6 +98,15 @@ class SongHandler(AbletonOSCHandler):
         #--------------------------------------------------------------------------------
         self.osc_server.add_handler("/live/song/get/num_tracks", lambda _: (len(self.song.tracks),))
 
+        #--------------------------------------------------------------------------------
+        # How many times a different Live Set has been loaded since AbletonOSC started.
+        # It begins at 0 and only ever grows, so a polling client can compare it with
+        # the value it last saw and know whether the document it is describing is still
+        # the one that is open. Detection lives in manager._check_document_changed().
+        #--------------------------------------------------------------------------------
+        self.osc_server.add_handler("/live/song/get/document_generation",
+                                    lambda _: (self.manager.document_generation,))
+
         def song_get_track_names(params):
             if len(params) == 0:
                 track_index_min, track_index_max = 0, len(self.song.tracks)

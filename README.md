@@ -164,8 +164,36 @@ for [Live Object Model - Song](https://docs.cycling74.com/max8/vignettes/live_ob
 | /live/song/get/cue_points  |              | name, time, ...        | Query a list of the song's cue points                                       |
 | /live/song/get/num_scenes  |              | num_scenes             | Query the number of scenes                                                  |
 | /live/song/get/num_tracks  |              | num_tracks             | Query the number of tracks                                                  |
+| /live/song/get/document_generation |       | generation             | How many times a different Set has been loaded since AbletonOSC started. See below. |
 | /live/song/get/track_names |              | [index_min, index_max] | Query track names (optionally, over a given range)                          |
 | /live/song/get/track_data  |              | [various]              | Query bulk properties of multiple tracks/clips. See below for further info. |
+
+#### Knowing that another Set has been loaded
+
+A control surface is bound to its MIDI ports, not to the document. Loading another Live
+Set therefore does **not** restart AbletonOSC — it simply swaps the object returned by
+`song()`. Nothing is sent, nothing goes quiet, and a client has no way of knowing that
+everything it had learned about the document (track indices, scene count, routings) now
+describes a Set that is no longer open.
+
+Clients have worked around this by watching a value that usually changes with the
+document, most often `track_names`. That is unreliable in both directions: renaming one
+track looks like a new document, and two Sets with the same track names look like the
+same one.
+
+AbletonOSC compares the identity of the `Song` object instead, which is exactly the
+question being asked, and publishes the answer two ways:
+
+| address | when | payload |
+| --- | --- | --- |
+| `/live/song/loaded` | broadcast, on each change | `generation` |
+| `/live/song/get/document_generation` | on request | `generation` |
+
+The counter starts at 0 and only grows. The broadcast suits clients that subscribe; the
+counter suits clients that poll and would miss a broadcast sent while they were not
+listening. Startup is not counted as a change, so a client does not see a phantom load
+when AbletonOSC starts.
+
 
 
 #### Querying track/clip data in bulk with /live/song/get/track_data
