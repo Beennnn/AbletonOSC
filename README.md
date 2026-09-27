@@ -181,8 +181,19 @@ document, most often `track_names`. That is unreliable in both directions: renam
 track looks like a new document, and two Sets with the same track names look like the
 same one.
 
-AbletonOSC compares the identity of the `Song` object instead, which is exactly the
-question being asked, and publishes the answer two ways:
+AbletonOSC compares a fingerprint of the document's **shape** instead — track count,
+scene count, song length and time signature. Renaming a track leaves all four untouched,
+which is the whole point.
+
+> Object identity was tried first and **does not work**: measured on Live 12, loading
+> another Set leaves `song()` returning the same Python object. The check is kept as a
+> free first test, since a different object cannot be the same document, but the
+> fingerprint is what does the work.
+
+The tradeoff is taken knowingly: two Sets sharing all four values would be missed, which
+is far less likely than the false positive measured on a single rename.
+
+The answer is published two ways:
 
 | address | when | payload |
 | --- | --- | --- |
