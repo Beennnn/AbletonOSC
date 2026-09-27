@@ -4,17 +4,18 @@ from .handler import AbletonOSCHandler
 
 class CueBus:
     """Live's Cue (headphone) level, dressed as a track so that index -2 reaches
-    it exactly as -1 reaches the master.
+    it exactly as -1 reaches Main.
 
-    The Cue level is not a track, and not a property of the song either: it lives
-    on the master track's mixer device, as `cue_volume` -- documented "MainTrack
+    The Cue level is not a track and not a property of the song either: it lives
+    on the MAIN TRACK's mixer device, as `cue_volume`, documented "MainTrack
     only: Const access to the Cue Volume Parameter". No OSC address reached it
     until now.
 
-    Volume is all this bus exposes, and that is not an omission: the Live API has
-    no cue output routing at all, the cue output being chosen in the audio
-    preferences rather than through the object model. Anything else raises,
-    rather than silently acting on some other object.
+    Volume is ALL this bus exposes, and that is not a shortcut: the Live API has
+    no cue output routing at all -- the cue output is chosen in the audio
+    preferences, not through the object model. A call this bus cannot serve
+    raises, rather than silently acting on some other object, which is the whole
+    failure mode `tracks[-2]` has.
     """
 
     def __init__(self, song):
@@ -42,12 +43,11 @@ class TrackHandler(AbletonOSCHandler):
                     track_indices = [int(params[0])]
 
                 for track_index in track_indices:
-                    # Index -1 addresses the master track, -2 the Cue bus. Neither is
-                    # in `song.tracks`, and a plain negative index would silently
-                    # resolve to a regular track -- tracks[-1] to the last one,
-                    # tracks[-2] to the one before it -- so both cases have to be
-                    # explicit. Without this, the master's volume, panning and output
-                    # routing, and the cue level, are simply not reachable over OSC.
+                    # Index -1 addresses the master track, -2 the Cue output. Live's `song.tracks` does not
+                    # contain it, and a plain negative index would silently resolve to the
+                    # LAST regular track -- so the case has to be explicit. Without this,
+                    # the master track's volume, panning and output routing are simply not
+                    # reachable over OSC.
                     if track_index == -1:
                         track = self.song.master_track
                     elif track_index == -2:
@@ -219,9 +219,10 @@ class TrackHandler(AbletonOSCHandler):
         def track_get_output_routing_channel(track, _):
             return track.output_routing_channel.display_name,
         def track_set_output_routing_channel(track, params):
-            # An index is accepted as well as a display name, because a MIDI control
-            # can only ever send a number: a CC carries 0-127, never a string. The
-            # name stays the readable form for a configuration file.
+            # An INDEX is accepted as well as a name, because the only thing that can
+            # reach us from a MIDI control is a number: a CC carries 0-127, never a
+            # string. The name stays the readable form for a config file; the index is
+            # what a Stream Deck key can send through the MIDI-to-OSC bridge.
             channels = list(track.available_output_routing_channels)
             arg = params[0]
             if isinstance(arg, int) or (isinstance(arg, str) and arg.lstrip("-").isdigit()):
