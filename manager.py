@@ -28,6 +28,7 @@ class Manager(ControlSurface):
         self._last_song = None
         self._last_shape = None
         self._seen_a_document = False
+        self._shape_error_logged = False
         self.document_generation = 0
 
         try:
@@ -160,7 +161,15 @@ class Manager(ControlSurface):
         began with, so a client does not see a phantom load when AbletonOSC starts.
         """
         try:
-            song = self.song()
+            #--------------------------------------------------------------------------
+            # `song` is a PROPERTY of ableton.v2's ControlSurface, not a method. Calling
+            # it raised TypeError on every single tick, and the broad `except` below
+            # turned that into silence: the check did nothing at all, and three rounds
+            # of measurement were spent concluding things about code that never ran.
+            # The narrow exception list and the one-shot log at the bottom exist so that
+            # cannot happen twice.
+            #--------------------------------------------------------------------------
+            song = self.song
             #--------------------------------------------------------------------------
             # A fingerprint of the document's SHAPE, not of its labels. Renaming a track
             # leaves every one of these untouched, which is the whole point: the
@@ -169,11 +178,17 @@ class Manager(ControlSurface):
             #--------------------------------------------------------------------------
             shape = (len(song.tracks), len(song.return_tracks), len(song.scenes),
                      song.signature_numerator, song.signature_denominator)
-        except Exception:
+        except (AttributeError, RuntimeError) as e:
             #--------------------------------------------------------------------------
-            # song() can raise while Live is between documents. Not worth logging every
-            # 100 ms -- the next tick will find it settled.
+            # Live can refuse to answer while it is between documents, and that settles
+            # by itself on the next tick -- not worth logging a hundred times a second.
+            # But a mistake on our side looks exactly the same from here, so it is said
+            # ONCE. Silence is what cost the three rounds above.
             #--------------------------------------------------------------------------
+            if not self._shape_error_logged:
+                self._shape_error_logged = True
+                logger.warning("Cannot read the document shape: %s. Document-change "
+                               "detection is disabled until this clears." % e)
             return
 
         #------------------------------------------------------------------------------
