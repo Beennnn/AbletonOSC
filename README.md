@@ -164,8 +164,37 @@ for [Live Object Model - Song](https://docs.cycling74.com/max8/vignettes/live_ob
 | /live/song/get/cue_points  |              | name, time, ...        | Query a list of the song's cue points                                       |
 | /live/song/get/num_scenes  |              | num_scenes             | Query the number of scenes                                                  |
 | /live/song/get/num_tracks  |              | num_tracks             | Query the number of tracks                                                  |
-| /live/song/get/document_generation |       | generation             | How many times a different Set has been loaded since AbletonOSC started. See below. |
+| /live/song/get/startup_count |             | startup_count          | How many times this control surface has started. See below. |
 | /live/song/get/track_names |              | [index_min, index_max] | Query track names (optionally, over a given range)                          |
+| /live/song/get/track_data  |              | [various]              | Query bulk properties of multiple tracks/clips. See below for further info. |
+
+#### Knowing that another Set has been loaded
+
+Loading another Live Set **restarts the control surface**. From AbletonOSC's own log,
+measured on Live 12:
+
+```
+14:01:59  Disconnecting...          <- the Set was opened here
+14:02:10  Started AbletonOSC on address ('0.0.0.0', 11000)
+```
+
+A client therefore does not need AbletonOSC to compare documents or fingerprint them. It
+needs to be *told* that everything it had learned — track indices, scene count, routings
+— belongs to a document that is no longer open. AbletonOSC now says so on startup:
+
+| address | when | payload |
+| --- | --- | --- |
+| `/live/startup` | broadcast, once per start | `startup_count` |
+| `/live/song/get/startup_count` | on request | `startup_count` |
+
+This is true by construction and has no false positive to reason about. Clients have been
+working around its absence by watching a value that usually changes with the document,
+most often `track_names` — which fires on a rename, and stays silent between two Sets
+whose track names match.
+
+The count lets a client that reconnects tell a first sight from a restart it slept
+through.
+
 | /live/song/get/track_data  |              | [various]              | Query bulk properties of multiple tracks/clips. See below for further info. |
 
 #### Knowing that another Set has been loaded
