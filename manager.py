@@ -20,6 +20,14 @@ class Manager(ControlSurface):
         self.handlers = []
         self.midi_mappings = {}
 
+        #--------------------------------------------------------------------------------
+        # Which document we last saw. Loading another Live Set replaces the Song object
+        # without restarting this control surface, so this is what tells the two apart.
+        # See _check_document_changed().
+        #--------------------------------------------------------------------------------
+        self._last_song = None
+        self.document_generation = 0
+
         try:
             self.osc_server = abletonosc.OSCServer()
             self.schedule_message(0, self.tick)
@@ -115,8 +123,57 @@ class Manager(ControlSurface):
         processes such as the OSC server to perform operations.
         """
         logger.debug("Tick...")
+        self._check_document_changed()
         self.osc_server.process()
         self.schedule_message(1, self.tick)
+
+    def _check_document_changed(self):
+        """
+        Detect that a different Live Set has been loaded, and tell clients about it.
+
+        Why this is needed: a control surface is bound to its MIDI ports, not to the
+        document. Loading another Set therefore does NOT restart AbletonOSC -- it simply
+        swaps the object returned by self.song(). Nothing is sent, nothing goes quiet,
+        and a client has no way of knowing that everything it had learned about the
+        document -- track indices, scene count, routings -- now describes a Set that is
+        no longer open.
+
+        Clients have been working around this by watching a value that usually changes
+        with the document, most often the list of track names. That is unreliable in
+        both directions: renaming one track looks like a new document, and two Sets with
+        the same track names look like the same one.
+
+        Identity is the honest signal. `song` is a different Python object for a
+        different document, so `is not` answers the question exactly, with no heuristic
+        and no false positive.
+
+        Two things are published, because clients differ in how they listen:
+          * /live/song/loaded          broadcast, for clients that subscribe;
+          * /live/song/get/document_generation
+                                       a counter, for clients that poll -- ours polls
+                                       every 30 s and would miss a broadcast sent while
+                                       it was not listening.
+
+        The first call, at startup, is not a change: it only records the document we
+        began with, so a client does not see a phantom load when AbletonOSC starts.
+        """
+        try:
+            song = self.song()
+        except Exception:
+            #--------------------------------------------------------------------------
+            # song() can raise while Live is between documents. That is not an error
+            # worth logging every 100 ms -- the next tick will find it settled.
+            #--------------------------------------------------------------------------
+            return
+        if song is self._last_song:
+            return
+        premier = self._last_song is None
+        self._last_song = song
+        if premier:
+            return
+        self.document_generation += 1
+        logger.info("Document changed (generation %d)" % self.document_generation)
+        self.osc_server.send("/live/song/loaded", (self.document_generation,))
 
     def reload_imports(self):
         try:
