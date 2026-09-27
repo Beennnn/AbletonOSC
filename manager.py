@@ -26,6 +26,8 @@ class Manager(ControlSurface):
         # See _check_document_changed().
         #--------------------------------------------------------------------------------
         self._last_song = None
+        self._last_shape = None
+        self._seen_a_document = False
         self.document_generation = 0
 
         try:
@@ -159,20 +161,44 @@ class Manager(ControlSurface):
         """
         try:
             song = self.song()
+            #--------------------------------------------------------------------------
+            # A fingerprint of the document's SHAPE, not of its labels. Renaming a track
+            # leaves every one of these untouched, which is the whole point: the
+            # workaround this replaces watched track NAMES and fired twice on a
+            # rename-and-rename-back.
+            #--------------------------------------------------------------------------
+            shape = (len(song.tracks), len(song.return_tracks), len(song.scenes),
+                     song.signature_numerator, song.signature_denominator)
         except Exception:
             #--------------------------------------------------------------------------
-            # song() can raise while Live is between documents. That is not an error
-            # worth logging every 100 ms -- the next tick will find it settled.
+            # song() can raise while Live is between documents. Not worth logging every
+            # 100 ms -- the next tick will find it settled.
             #--------------------------------------------------------------------------
             return
-        if song is self._last_song:
+
+        #------------------------------------------------------------------------------
+        # Object identity is checked first because it can only ever be right when it
+        # fires: a different object cannot be the same document. On Live 12 it never
+        # fires -- measured 2026-09-27, loading another Set left song() returning the
+        # same instance -- so the fingerprint is what actually does the work. It is kept
+        # because it costs one comparison and would catch a version that does rebuild
+        # the object, where the fingerprint could miss two Sets of the same shape.
+        #------------------------------------------------------------------------------
+        changed = (self._last_song is not None and song is not self._last_song) or \
+                  (self._last_shape is not None and shape != self._last_shape)
+        self._last_song, self._last_shape = song, shape
+
+        if not self._seen_a_document:
+            #--------------------------------------------------------------------------
+            # Startup is not a change: the first pass only records what we began with,
+            # so a client does not see a phantom load when AbletonOSC starts.
+            #--------------------------------------------------------------------------
+            self._seen_a_document = True
             return
-        premier = self._last_song is None
-        self._last_song = song
-        if premier:
+        if not changed:
             return
         self.document_generation += 1
-        logger.info("Document changed (generation %d)" % self.document_generation)
+        logger.info("Document changed (generation %d, shape %s)" % (self.document_generation, shape))
         self.osc_server.send("/live/song/loaded", (self.document_generation,))
 
     def reload_imports(self):
